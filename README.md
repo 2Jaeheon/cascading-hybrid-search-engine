@@ -4,7 +4,7 @@
 
 이 프로젝트의 핵심은 검색엔진(BM25)를 직접 구축하여 AI Model을 접목하여 성능을 극대화하는 것입니다.
 - **필수 요건**: 외부 검색 엔진(Elasticsearch 등) 사용 금지, Inverted Index 및 BM25 알고리즘 직접 구현
-- **파이프라인**: `BM25 (Base)` → `Positional Index (Phrase)` → `PRF (Expansion)` → `SPLADE (Reranking)`
+- **파이프라인**: `BM25 (Base)` -> `Positional Index (Phrase)` -> `PRF (Expansion)` -> `SPLADE (Coarse Reranking)` -> `Cross-Encoder (Fine Reranking)`
 
 ## 2. 전체 시스템 아키텍처
 
@@ -27,7 +27,8 @@
 
 #### 2. 전처리 (Preprocessing)
 - **토큰화(Tokenization)**: 문장을 단어 단위로 쪼갭니다. (영어이므로 공백 기준 + 소문자 변환 + 특수문자 제거)
-- **불용어 제거**: `the`, `is`, `a` 같은 의미 없는 단어는 색인에서 제외하여 용량을 줄입니다.
+- **불용어(stopword)제거**: `nltk` 라이브러리의 확장된 불용어 리스트를 사용하여 `the`, `is`, `a` 등 의미 없는 단어를 제거합니다.
+- **어간 추출(Stemming)**: `PorterStemmer`를 적용하여 `running`, `runs` -> `run`과 같이 원형으로 통일합니다.
 
 #### 3. Positional Inverted Index 구축 (가산점 핵심)
 단순히 "이 단어가 있다/없다"만 저장하지 말고, 몇번째 위치에 있는지 저장합니다.
