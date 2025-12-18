@@ -1,131 +1,111 @@
 # 검색엔진 개발 마일스톤
 
+본 프로젝트는 전통적인 키워드 검색(BM25)과 최신 딥러닝 기반의 희소 검색(SPLADE)을 결합한 **하이브리드 검색 엔진**을 구축하고, 최종적으로 Cross-Encoder를 통해 정밀한 순위 조정을 수행하는 고성능 검색 시스템 개발을 목표로 합니다.
+
 ## 1. 프로젝트 개요 및 목표
 
-이 프로젝트의 핵심은 검색엔진(BM25)를 직접 구축하여 AI Model을 접목하여 성능을 극대화하는 것입니다.
-- **필수 요건**: 외부 검색 엔진(Elasticsearch 등) 사용 금지, Inverted Index 및 BM25 알고리즘 직접 구현
-- **파이프라인**: `BM25 (Base)` -> `Positional Index (Phrase)` -> `PRF (Expansion)` -> `SPLADE (Coarse Reranking)` -> `Cross-Encoder (Fine Reranking)`
+단순한 키워드 매칭의 한계를 극복하고, 의미 기반 검색의 장점을 결합하여 **Recall(재현율)**과 **Precision(정확도)**을 동시에 극대화합니다.
+- Core Strategy: Hybrid Retrieval (BM25 + SPLADE)
+- Ranking Refinement: Cross-Encoder
+- Key Constraint: 외부 검색 엔진(Elasticsearch 등) 없이 Inverted Index 및 핵심 알고리즘 직접 구현
 
 ## 2. 전체 시스템 아키텍처
 
 시스템은 속도와 정확도를 모두 잡기 위한 3단계로 동작합니다.
 
-1. **전처리 및 인덱싱**: 문서를 분석해 Inverted Index와 Vector Index를 미리 구축합니다.
-2. **Level 1**: **BM25** 알고리즘으로 대규모 문서 중 후보군 **1,000개**를 빠르게 확보합니다. (Recall)
-3. **Query Expansion**: 1차 결과에서 힌트를 얻어 질의를 확장(PRF)합니다.
-4. **Level 2 (Coarse Reranking)**: **SPLADE**로 문맥을 고려해 상위 **50개**를 추려냅니다. (Semantic Filter)
-5. **Level 3 (Fine Reranking)**: **Cross-Encoder**로 최종 50개를 정밀 채점하여 순위를 갱신합니다. (Precision)
+1. Stage1: Retrieval
+- BM25 (Lexical): 키워드 매칭
+- SPLADE (Semantic): 문맥 및 의미 기반 확장 검색
+- Fusion: 두 검색 결과를 결합하여 상위 100개의 후보군을 추출
+
+2. Stage2 : ReRanking
+- cross-encoder: 단계에서 선별된 소수의 후보 문서에 대해 질의와 문서를 심층 비교하여 최종 순위를 매깁니다
 
 ## 3. 단계별 상세 가이드
 
-### Phase 1. 데이터 준비 및 인덱싱
-**목표**: `wikir/en1k` 데이터셋을 읽어 검색 가능한 형태(invertedIndex)로 변환합니다.
+### Phase 1. 데이터 준비, 확장 및 인덱싱 (Data Preparation & Expansion)
+**목표**: 원본 문서에 잠재된 질의를 추가하여(Expansion) 검색 확률을 높이고, 이를 Inverted Index로 구축합니다.
 
-#### 1. 데이터 로드
-- `ir_datasets` 라이브러리를 사용해 `wikir/en1k/training` 데이터를 불러옵니다.
-- 문서(Document), 질의(Query), 정답지(Qrels) 3가지를 테스트합니다.
+#### 1. 데이터 로드 및 문서 확장 (Doc2Query)
+- **데이터**: `ir_datasets`의 `wikir/en1k/training`
+- **Doc2Query**:
+  - `scripts/expand_docs.py`: `castorini/doc2query-t5-base-msmarco` 모델을 사용합니다.
+  - 각 문서마다 10개의 예상 질의를 생성하여 문서 뒤에 덧붙입니다.
+  - **결과물**: `data/expanded_docs.json`
+- 실제 인덱싱은 확장된 문서를 기반으로 진행합니다.
 
 #### 2. 전처리 (Preprocessing)
-- **토큰화(Tokenization)**: 문장을 단어 단위로 쪼갭니다. (영어이므로 공백 기준 + 소문자 변환 + 특수문자 제거)
-- **불용어(stopword)제거**: `nltk` 라이브러리의 확장된 불용어 리스트를 사용하여 `the`, `is`, `a` 등 의미 없는 단어를 제거합니다.
-- **어간 추출(Stemming)**: `PorterStemmer`를 적용하여 `running`, `runs` -> `run`과 같이 원형으로 통일합니다.
+- **Tokenization**: `bert-base-uncased` 모델의 BERT Tokenizer를 사용합니다.
+  - 단순 공백/규칙 기반이 아닌, 의미 단위의 Subword Tokenization을 수행합니다.
 
-#### 3. Positional Inverted Index 구축 (가산점 핵심)
-단순히 "이 단어가 있다/없다"만 저장하지 말고, 몇번째 위치에 있는지 저장합니다.
+#### 3. Inverted Index 구축
+- `data/expanded_docs.json`의 확장된 텍스트를 입력으로 받습니다.
+- BM25 통계: 확장된 텍스트 길이를 기준으로 `avgdl`, `doc_len`을 계산하여 저장합니다.
 
-- **구조**: `Dictionary<단어, Dictionary<문서ID, List<위치>>>`
-- **예시**: "AI"라는 단어가 문서 5번의 3번째, 10번째에 등장한다면?
-  - `"ai": { 5: [3, 10], ... }`
-- **통계 저장**: BM25 계산을 위해 아래 정보도 미리 계산해 저장해 둡니다.
-  - `N`: 전체 문서 개수
-  - `avgdl`: 평균 문서 길이
-  - `doc_len`: 각 문서의 길이
+### Phase 2. 검색 (BM25 + SPLADE)
 
-### Phase 2. 1차 검색: BM25 & 구 검색 (Retrieval)
+**목표**: 키워드 매칭(BM25)과 문맥 매칭(SPLADE)을 결합하여 Recall을 극대화합니다.
 
-**목표**: 사용자의 질의와 관련 있을 법한 후보 문서 1,000개를 최대한 빠르게 찾습니다. (Recall 확보)
+#### 1. BM25
+- 전통적인 키워드 매칭 방식.
+- **알고리즘**: TF-IDF의 개선판으로, 문서 길이와 단어 빈도를 고려하여 점수를 매깁니다.
+- **역할**: 사용자가 입력한 단어가 정확히 포함된 문서를 놓치지 않고 찾아냅니다.
 
-#### 1. BM25 알고리즘 구현
-- **TF (Term Frequency)**: 단어가 문서에 얼마나 자주 나오는가? (많을수록 좋음)
-- **IDF (Inverse Document Frequency)**: 단어가 얼마나 희귀한가? (희귀할수록 점수 높음)
-- **Length Normalization**: 문서가 너무 길지 않은가? (짧은 문서에 매칭될수록 가산점)
-- **구현**: 위 3가지 요소를 결합한 BM25 수식을 코드로 옮깁니다. (파라미터 `k1=1.5, b=0.75` 권장)
+#### 2. SPLADE
+- 문맥을 고려하여 문서에 단어가 없어도 의미가 통하는 문서를 찾아냅니다.
+- **역할**: "Car"를 검색했을 때 "Vehicle"이나 "Automobile"이 포함된 문서를 찾아냅니다.
 
-#### 2. 구(Phrase) 검색 로직 추가 (Positional Index 활용)
-- 질의에 연속된 단어(예: "Solar Energy")가 있다면, 인덱스에서 두 단어의 위치 정보를 확인합니다.
-- 실제 문서에서도 두 단어가 붙어있다면(위치 차이가 1이라면) BM25 점수에 가산점을 줍니다.
-- **효과**: "New York"을 검색했을 때 "New"와 "York"가 따로 떨어진 문서보다, 붙어있는 문서를 상위에 올립니다.
+#### 3. Ensemble
+- **방식**: Reciprocal Rank Fusion (RRF) 알고리즘을 사용하여 결합합니다.
+  - `Score = 1 / (k + Rank_BM25) + 1 / (k + Rank_SPLADE)` (통상 `k=60`)
+- **효과**: scale이 서로 다른 두 모델을 Rank 기반으로 공정하게 합쳐, 한쪽 모델의 이상치 왜곡을 방지합니다.
+- **결과**: 안정적으로 상위 **50개**의 후보군을 추출합니다.
 
-### Phase 3. 질의 확장: Pseudo-Relevance Feedback (Expansion)
+### Phase 3. 정밀 리랭킹
 
-**목표**: 사용자의 짧고 모호한 검색어를 구체화하여 숨겨진 의도를 파악합니다.
+**목표**: 하이브리드 검색으로 추려진 50개의 문서를 "진짜 정답" 순서대로 재배열합니다. (Precision 확보)
 
-#### 작동 프로세스
-1. **가정**: "BM25로 찾은 상위 10개 문서는 정답일 확률이 높다."
-2. **분석**: 상위 10개 문서에서 공통적으로 자주 등장하는 핵심 키워드 3~5개를 뽑습니다.
-3. **확장**: 원래 질의 뒤에 뽑힌 키워드를 덧붙입니다.
-   - User Query: "Apple"
-   - Top Docs Topic: "iPhone", "Mac", "Technology"
-   - Expanded Query: "Apple *iPhone Mac Technology*"
-4. **효과**: 사용자가 "iPhone"을 입력하지 않았어도, 관련된 문서를 찾아낼 수 있게 됩니다.
+#### Cross-Encoder 로직
+- **모델**: `cross-encoder/ms-marco-MiniLM-L-6-v2` 등 성능과 속도가 균형 잡힌 모델 사용.
+- **입력**: Query와 문서를 `[SEP]` 토큰으로 이어 붙여 모델에 동시에 넣습니다.
+- **계산**: 모델이 query와 문서 사이의 모든 토큰 관계를 분석하여 관련성 점수를 출력합니다.
+- **결과**: 가장 관련성이 높은 상위 **10개** 문서를 최종 검색 결과로 확정합니다.
 
-### Phase 4. 고도화된 리랭킹 (Cascading Rerank)
+### Phase 4. UI 및 성능 평가
 
-**목표**: 속도와 정확도의 균형을 맞추기 위해 3단계 파이프라인으로 구성하였습니다.
+**목표**: 구축한 검색 엔진의 성능을 수치로 증명하고, 웹 인터페이스로 시각화합니다.
 
-#### 1. Level 1: 후보군 정제
-- **입력**: BM25 & PRF를 거친 상위 1,000개 문서
-- **모델**: **SPLADE (Bi-Encoder)**
-- **로직**:
-  - 문맥을 고려하는 SPLADE 모델로 문서와 질의를 Sparse Vector로 변환합니다.
-  - 내적 계산을 통해 1,000개 문서와의 유사도를 계산합니다.
-  - 상위 **50개**의 고품질 문서를 선별합니다.
+#### 1. 성능 평가 (TREC Eval)
+- `pytrec_eval`을 사용하여 표준 지표를 측정합니다.
+- **MAP**: 전체적인 랭킹 품질
+- **nDCG@10**: 상위 10개 결과의 가중치 반영 품질
+- **P@10**: 상위 10개 중 정답 비율
 
-#### 2. Level 2: 재정렬
-- **입력**: 선별된 상위 50개 문서
-- **모델**: **Cross-Encoder** (예: `cross-encoder/ms-marco-MiniLM-L-6-v2`)
-- **로직**:
-  - 질의와 문서를 `[SEP]` 토큰으로 이어 붙여 모델에 "통째로" 입력합니다. (`Model(Query, Doc)`)
-  - 질의와 문서의 토큰간의 attention을 계산하여 의미적 적합성을 정밀 채점합니다.
-  - 최종 점수 순으로 재정렬하여 TOP 10을 확정합니다.
 
-### Phase 5. UI 및 성능 평가
 
-**목표**: 시스템이 얼마나 잘 작동하는지 보여주고 수치로 증명합니다.
-
-#### 1. 검색 UI 구현
-- **기술 스택**: **FastAPI** (Backend) + **Jinja2 Templates** (Frontend)
-- **필수 포함 정보**:
-  - 검색 소요 시간
-  - 검색된 총 문서 수
-  - 결과 리스트 (순위, 문서 제목, 문서 내용 일부, 관련도 점수)
-
-#### 2. 성능 평가 (TREC Eval)
-- **도구**: `pytrec_eval` 라이브러리
-- **지표**:
-  - **MAP (Mean Average Precision)**: 전반적인 검색 품질
-  - **nDCG**: 순위의 정확도 (상위에 정답이 있는가?)
-  - **P@10 (Precision at 10)**: 1페이지 내에 정답이 몇 개 있는가?
+#### 2. Web UI (FastAPI)
+- **Frontend**: Jinja2 Template (HTML/CSS)
+- **Backend**: FastAPI
+- **기능**: 검색어 입력 -> 하이브리드 검색 -> 리랭킹 -> 결과 출력 (점수 및 소요시간 포함)
 
 ## 4. 프로젝트 진행 체크리스트
 
-### 1주차: 기본 구현
-- [X] 데이터셋(`wikir/en1k`) 다운로드 및 내용 확인 (Doc, Query, Qrels)
-- [X] 전처리 모듈 구현 (토큰화, 불용어 제거)
-- [X] **Positional Inverted Index** 구현 (직접 구현 필수)
-- [X] 인덱스 구축 후 저장/로드 기능 확인
+### 1주차: 기본 인덱싱 및 BM25
+- [X] 데이터셋(`wikir/en1k`) 다운로드 및 내용 확인
+- [X] 전처리 모듈 및 Positional Inverted Index 구현
+- [X] **BM25 알고리즘** 구현 및 테스트
 
-### 2주차: 검색 엔진 코어 개발
-- [ ] **BM25 알고리즘** 구현 및 1차 검색 테스트
-- [ ] `TREC Eval`로 BM25 베이스라인 성능 측정 (기록해둘 것)
-- [ ] **Pseudo-Relevance Feedback (PRF)** 모듈 구현 및 질의 확장 테스트
+### 2주차: SPLADE 및 하이브리드 구현
+- [ ] **SPLADE 모델** 연동 및 문서 인코딩
+- [ ] **Hybrid Search** (BM25 + SPLADE) 로직 구현
 
-### 3주차: 고도화 및 마무리
-- [ ] **SPLADE + FAISS** 연동 (Coarse Reranking)
-- [ ] **Cross-Encoder** 연동 (Fine Reranking)
-- [ ] 최종 파이프라인 연결 및 성능 측정
-- [ ] 간단한 검색 UI 개발
-- [ ] **보고서 작성** (Multi-stage 아키텍처 다이어그램 포함)
+### 3주차: 리랭킹 및 시스템 통합
+- [ ] **Cross-Encoder** 활용 Reranker 구현
+- [ ] 전체 파이프라인 통합 및 테스트
+
+### 4주차: 평가 및 UI
+- [ ] **TREC Eval** 성능 평가
+- [ ] **Web UI** 개발 및 보고서 작성
 
 ---
 
@@ -133,10 +113,9 @@
 
 | 단계 | 기법 (Model) | 역할 | 특징 | 대상 문서 수 |
 |------|------|------|------|:---:|
-| 0 | Inverted Index | 빠른 탐색 | 키워드 매칭 | 전체 (N) |
-| 1 | BM25 + PRF | Recall 확보 | 통계적 확률 기반 | 1,000개 추출 |
-| 2 | SPLADE (Reranking) | Meaning Filter | 문맥 파악 & 고속 벡터 연산 | 1,000 → 50 |
-| 3 | Cross-Encoder | Precision 확보 | 문장 쌍 정밀 비교 | 50 → 10 |
+| 1 | BM25 (Lexical) | 키워드 매칭 | 정확한 단어 매칭에 강함 | 전체 (N) |
+| 1' | SPLADE (Semantic) | 문맥 매칭 | 의미적 유사성 파악 | 전체 (N) |
+| 2 | Hybrid (Ensemble) | 후보군 추출 | 위 두 점수를 결합 (Recall↑) | Top 50 추출 |
+| 3 | Cross-Encoder | 정밀 재정렬 | 문장 간 심층 관계 파악 (Precision↑) | 50 → Top 10 |
 
 ---
-
