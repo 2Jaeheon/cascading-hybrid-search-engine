@@ -7,7 +7,6 @@ import contextlib
 import ir_datasets
 import time
 import os
-import nltk
 import re
 
 # 전역 인스턴스
@@ -17,37 +16,6 @@ DOC_STORE = {} # {doc_id: text}
 # 현재 파일의 디렉토리 절대 경로
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-def generate_title(text: str) -> str:
-    try:
-        # 첫 문장만 추출 (간단하게 마침표 기준으로)
-        first_sentence = text.split('.')[0]
-        if len(first_sentence) > 200:
-            first_sentence = first_sentence[:200]
-        
-        tokens = nltk.word_tokenize(first_sentence)
-        tagged = nltk.pos_tag(tokens)
-        
-        # 문법 정의: 관사(DT) + 형용사(JJ) + 명사(NN) 패턴 추출 (관형명->제목으로 하기에 딱 좋음)
-        grammar = "NP: {<DT>?<JJ>*<NN.*>+}"
-        cp = nltk.RegexpParser(grammar)
-        tree = cp.parse(tagged)
-        
-        # 트리에서 첫 번째 NP(명사구) 찾기
-        for subtree in tree.subtrees():
-            if subtree.label() == 'NP':
-                # 찾은 명사구의 단어들을 합침
-                words = [word for word, tag in subtree.leaves()]
-                
-                if len(words) == 1 and len(words[0]) <= 1:
-                    continue
-                return " ".join(words).title()
-                
-    except Exception as e:
-        pass
-        
-    # 만일 위 과정이 실패하면, 맨 앞 8단어를 제목으로 함
-    words = text.split()[:8]
-    return " ".join(words).title()
 
 def highlight_text(text: str, query: str) -> str:
     if not query:
@@ -73,19 +41,6 @@ async def lifespan(app: FastAPI):
     print("엔진 초기화중...")
     # index_path는 프로젝트 루트 기준 data/index.pkl
     engine = SearchEngine(index_path="data/index.pkl")
-    
-    # NLTK 데이터 확인 및 다운로드 (POS Tagger용)
-    try:
-        nltk.data.find('tokenizers/punkt')
-        nltk.data.find('tokenizers/punkt_tab')
-        nltk.data.find('taggers/averaged_perceptron_tagger')
-        nltk.data.find('taggers/averaged_perceptron_tagger_eng')
-    except LookupError:
-        print("NLTK 데이터 다운로드 중...")
-        nltk.download('punkt', quiet=True)
-        nltk.download('punkt_tab', quiet=True)
-        nltk.download('averaged_perceptron_tagger', quiet=True)
-        nltk.download('averaged_perceptron_tagger_eng', quiet=True)
     
     # 인덱스가 존재하는지 확인하고 로드
     if not engine.load():
@@ -142,9 +97,7 @@ async def search(request: Request, q: str = ""):
         for rank, (doc_id, score) in enumerate(results_with_scores, 1):
             text = DOC_STORE.get(doc_id, "Content not found.")
             
-            title = generate_title(text)
-            if title == "Content Not Found.":
-                title = doc_id
+            title = engine.titles.get(doc_id, "제목 없음")
             
             snippet = text[:300] + "..." if len(text) > 300 else text
             

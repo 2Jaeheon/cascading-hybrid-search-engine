@@ -4,22 +4,25 @@ from typing import List, Tuple
 from collections import defaultdict
 import math
 import os
+import pickle
 
 # 서치 엔진은 실제로 application 계층에서 사용됨
 # 서치 엔진의 책임 == 시스템의 책임
 # 일종의 controller 역할을 함
 # inverted index를 사용하여 검색어를 찾음
 class SearchEngine:
-    def __init__(self, index_path: str = "data/index.pkl", splade_index_path: str = "data/splade_index", k1: float = 1.5, b: float = 0.75):
+    def __init__(self, index_path: str = "data/index.pkl", splade_index_path: str = "data/splade_index", titles_path: str = "data/titles.pkl", k1: float = 1.5, b: float = 0.75):
         self.index_path = index_path
         self.splade_index_path = splade_index_path
+        self.titles_path = titles_path
         
         self.k1 = k1 # BM25 파라미터
         self.b = b # BM25 파라미터
         
         self.inverted_index = InvertedIndex()
         self.splade_index = SpladeIndex()
-        self.splade_model = None
+        self.splade_model = None # 무거우니까 lazy loading
+        self.titles: Dict[str, str] = {}
 
     def load_splade_model(self):
         if self.splade_model is None:
@@ -103,11 +106,20 @@ class SearchEngine:
 
     def save(self):
         self.inverted_index.save(self.index_path)
-        
+
         if self.splade_index.matrix is not None:
             self.splade_index.save(self.splade_index_path)
 
+        with open(self.titles_path, 'wb') as f:
+            pickle.dump(self.titles, f)
+
     def load(self) -> bool:
         bm25_loaded = self.inverted_index.load(self.index_path)
+
         splade_loaded = self.splade_index.load(self.splade_index_path)
+        
+        if os.path.exists(self.titles_path):
+            with open(self.titles_path, 'rb') as f:
+                self.titles = pickle.load(f)
+        
         return bm25_loaded or splade_loaded

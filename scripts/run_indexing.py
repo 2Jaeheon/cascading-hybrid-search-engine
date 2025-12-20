@@ -16,6 +16,7 @@ def main():
     EXPANDED_DOCS_PATH = "data/expanded_docs.json"
     dataset_id = "wikir/en1k/training"
     documents = []
+    titles_map = {}
 
     # 확장된 문서(JSON)가 있는지 먼저 확인
     if os.path.exists(EXPANDED_DOCS_PATH):
@@ -25,12 +26,16 @@ def main():
         for item in data:
             doc_id = item['doc_id']
             text = item.get('text', item.get('original_text', ''))
+            title = item.get('title', '')
+            
             documents.append((doc_id, text))
+            if title:
+                titles_map[doc_id] = title
     
     # Doc2Query에서 생성된 JSON문서가 없으면 원본 ir_datasets 사용
     else:
         print("원본 데이터셋 사용")
-        dataset = ir_datasets.load(dataqset_id)
+        dataset = ir_datasets.load(dataset_id)
         
         for doc in dataset.docs_iter():
             documents.append((doc.doc_id, doc.text))
@@ -39,6 +44,7 @@ def main():
     
     print("인덱스 구축 중...")
     engine.build_index_from_data(documents)
+    engine.titles = titles_map
     
     engine.save()
     
