@@ -27,8 +27,14 @@ def main():
             doc_id = item['doc_id']
             text = item.get('text', item.get('original_text', ''))
             title = item.get('title', '')
+
+            indexed_text = text
+            if title:
+                # title을 두 번 넣음
+                # 키워드가 title에서 매칭되면 원하는 문서일 가능성이 큼
+                indexed_text = f"{title} {title} {text}"
             
-            documents.append((doc_id, text))
+            documents.append((doc_id, indexed_text))
             if title:
                 titles_map[doc_id] = title
     

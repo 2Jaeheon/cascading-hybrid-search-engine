@@ -34,6 +34,11 @@ def main():
                 for item in data:
                     doc_id = item.get('id', str(item.get('doc_id')))
                     text = item.get('text', item.get('original_text', ''))
+                    title = item.get('title', '')
+                    
+                    if title:
+                        text = f"{title} {text}"
+                        
                     documents.append((doc_id, text))
             
             elif isinstance(data, dict):

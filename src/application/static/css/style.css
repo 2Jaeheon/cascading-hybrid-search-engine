@@ -3,7 +3,6 @@
     --text-primary: #1e293b;
     --text-secondary: #64748b;
     --text-accent: #2563eb;
-    /* Stronger blue for white bg */
     --border-color: #e2e8f0;
     --card-bg: #ffffff;
     --card-hover: #f8fafc;
@@ -26,12 +25,10 @@ body {
 
 .container {
     max-width: 800px;
-    /* Standard reading width */
     margin: 0 auto;
     padding: 2rem 1rem;
 }
 
-/* Header & Brand */
 .search-header {
     text-align: center;
     margin-bottom: 3rem;
@@ -56,7 +53,6 @@ body {
     font-weight: 400;
 }
 
-/* Search Form */
 .search-box {
     margin-bottom: 3rem;
     max-width: 700px;
@@ -70,7 +66,6 @@ body {
     background: #ffffff;
     border: 1px solid #e2e8f0;
     border-radius: 9999px;
-    /* Pill shape for modern feel */
     padding: 0.5rem 0.5rem 0.5rem 1.25rem;
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
@@ -100,7 +95,6 @@ body {
     border: none;
     padding: 0.75rem 1.75rem;
     border-radius: 9999px;
-    /* Pill button to match inner */
     font-weight: 600;
     font-size: 1rem;
     cursor: pointer;
@@ -112,19 +106,6 @@ body {
     background-color: #1d4ed8;
 }
 
-/* Dataset Notice */
-.dataset-notice {
-    background-color: #eff6ff;
-    border: 1px solid #dbeafe;
-    color: #1e40af;
-    padding: 1rem;
-    border-radius: 8px;
-    margin-bottom: 2rem;
-    font-size: 0.875rem;
-    text-align: center;
-}
-
-/* Search Results */
 .results-meta {
     color: var(--text-secondary);
     font-size: 0.875rem;
@@ -149,7 +130,6 @@ body {
     margin-bottom: 0.5rem;
     position: relative;
     padding-right: 80px;
-    /* Space for ID badge */
 }
 
 .rank-badge {
@@ -165,8 +145,7 @@ body {
 }
 
 .doc-title a {
-    color: #1a0dab;
-    /* Classic Search Blue */
+    color: #000000;
     text-decoration: none;
 }
 
@@ -203,16 +182,128 @@ body {
     border-radius: 4px;
 }
 
-/* Highlight */
 mark {
     background: transparent;
     color: var(--text-accent);
     font-weight: 700;
 }
 
-/* No Results */
 .no-results {
     text-align: center;
     padding: 4rem 0;
     color: var(--text-secondary);
+}
+
+.pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 1.5rem;
+    margin-top: 3rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.page-link {
+    text-decoration: none;
+    color: var(--text-primary);
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.page-link:hover {
+    background-color: var(--card-hover);
+    border-color: var(--text-accent);
+    color: var(--text-accent);
+}
+
+.current-page {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.result-card {
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.result-card:hover {
+    background-color: var(--card-hover);
+}
+
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.25s ease, visibility 0.25s ease;
+}
+
+.modal-overlay.active {
+    opacity: 1;
+    visibility: visible;
+}
+
+.modal-content {
+    background: var(--card-bg);
+    border-radius: 12px;
+    max-width: 700px;
+    width: 90%;
+    max-height: 80vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    transform: translateY(20px);
+    transition: transform 0.25s ease;
+}
+
+.modal-overlay.active .modal-content {
+    transform: translateY(0);
+}
+
+.modal-close {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    background: none;
+    border: none;
+    font-size: 1.75rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    line-height: 1;
+    padding: 0.25rem;
+    transition: color 0.2s ease;
+}
+
+.modal-close:hover {
+    color: var(--text-primary);
+}
+
+.modal-title {
+    padding: 1.5rem 1.5rem 1rem;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.modal-body {
+    padding: 1.5rem;
+    overflow-y: auto;
+    color: var(--text-primary);
+    line-height: 1.7;
+    font-size: 0.95rem;
+    white-space: pre-wrap;
 }

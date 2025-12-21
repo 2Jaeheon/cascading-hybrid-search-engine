@@ -17,17 +17,38 @@ DOC_STORE = {} # {doc_id: text}
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
+# 불용어(stopwords) 목록 - 하이라이트에서 제외
+STOPWORDS = {
+    'i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', 'your',
+    'yours', 'yourself', 'yourselves', 'he', 'him', 'his', 'himself', 'she',
+    'her', 'hers', 'herself', 'it', 'its', 'itself', 'they', 'them', 'their',
+    'theirs', 'themselves', 'what', 'which', 'who', 'whom', 'this', 'that',
+    'these', 'those', 'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+    'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing', 'a', 'an',
+    'the', 'and', 'but', 'if', 'or', 'because', 'as', 'until', 'while', 'of',
+    'at', 'by', 'for', 'with', 'about', 'against', 'between', 'into', 'through',
+    'during', 'before', 'after', 'above', 'below', 'to', 'from', 'up', 'down',
+    'in', 'out', 'on', 'off', 'over', 'under', 'again', 'further', 'then',
+    'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'each',
+    'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only',
+    'own', 'same', 'so', 'than', 'too', 'very', 's', 't', 'can', 'will', 'just',
+    'don', 'should', 'now', 'want', 'would', 'could'
+}
+
+
 def highlight_text(text: str, query: str) -> str:
     if not query:
         return text
         
-    # 검색어를 단어 단위로 분리
-    terms = query.split()
+    terms = query.lower().split()
+    meaningful_terms = [t for t in terms if t not in STOPWORDS and len(t) > 2]
     
-    # 각 단어에 대해 대소문자 무시하고 치환
-    for term in terms:
+    if not meaningful_terms:
+        return text
+    
+    for term in meaningful_terms:
         escaped_term = re.escape(term)
-        pattern = re.compile(f"({escaped_term})", re.IGNORECASE)
+        pattern = re.compile(rf'\b({escaped_term})\b', re.IGNORECASE)
         text = pattern.sub(r"<mark>\1</mark>", text)
         
     return text
@@ -35,20 +56,17 @@ def highlight_text(text: str, query: str) -> str:
 # 수명 주기 관리를 위한 함수
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 초기화
+    # init(초기화)
     global engine
     
     print("엔진 초기화중...")
-    # index_path는 프로젝트 루트 기준 data/index.pkl
     engine = SearchEngine(index_path="data/index.pkl")
     
-    # 인덱스가 존재하는지 확인하고 로드
     if not engine.load():
         print("인덱스 로드 실패. 'scripts/run_indexing.py'를 먼저 실행해주세요.")
     else:
         print("인덱스 로드 성공.")
 
-    # 문서 내용 메모리에 로드
     print("문서를 메모리에 로드중...")
     start_time = time.time()
     dataset = ir_datasets.load("wikir/en1k/training")
@@ -86,21 +104,21 @@ async def read_root(request: Request):
     )
 
 @app.get("/search", response_class=HTMLResponse)
-async def search(request: Request, q: str = ""):
+async def search(request: Request, q: str = "", page: int = 1):
     results = []
     search_time = 0.0
+    limit = 10
     
     if q and engine:
         start_time = time.time()
-        results_with_scores = engine.hybrid_search(q, top_k=10)
+        offset = (page - 1) * limit
+
+        results_with_scores = engine.hybrid_search(q, top_k=limit, offset=offset)
         
-        for rank, (doc_id, score) in enumerate(results_with_scores, 1):
+        for rank, (doc_id, score) in enumerate(results_with_scores, offset + 1):
             text = DOC_STORE.get(doc_id, "Content not found.")
-            
             title = engine.titles.get(doc_id, "제목 없음")
-            
             snippet = text[:300] + "..." if len(text) > 300 else text
-            
             snippet = highlight_text(snippet, q)
             
             results.append({
@@ -108,6 +126,7 @@ async def search(request: Request, q: str = ""):
                 "doc_id": doc_id,
                 "title": title,
                 "snippet": snippet,
+                "full_text": text,
                 "score": f"{score:.4f}"
             })
             
@@ -115,5 +134,12 @@ async def search(request: Request, q: str = ""):
     
     return templates.TemplateResponse(
         "index.html",
-        {"request": request, "query": q, "results": results, "search_time": f"{search_time:.4f}"}
+        {
+            "request": request, 
+            "query": q, 
+            "results": results, 
+            "search_time": f"{search_time:.4f}",
+            "page": page,
+            "has_next": len(results) == limit
+        }
     )

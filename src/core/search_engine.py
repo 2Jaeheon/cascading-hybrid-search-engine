@@ -86,7 +86,7 @@ class SearchEngine:
         sorted_docs = sorted(results.items(), key=lambda item: item[1], reverse=True)
         return sorted_docs[:top_k]
 
-    def hybrid_search(self, query: str, top_k: int = 10, rrf_k: int = 60, candidates_k: int = 2000) -> List[Tuple[str, float]]:
+    def hybrid_search(self, query: str, top_k: int = 10, offset: int = 0, rrf_k: int = 60, candidates_k: int = 1000) -> List[Tuple[str, float]]:
         # RRF Score = 1 / (k + rank)
         bm25_results = self.search_bm25(query, top_k=candidates_k)
         splade_results = self.search_splade(query, top_k=candidates_k)
@@ -102,7 +102,7 @@ class SearchEngine:
             
         # 리랭킹
         sorted_docs = sorted(rrf_scores.items(), key=lambda item: item[1], reverse=True)
-        return sorted_docs[:top_k]
+        return sorted_docs[offset : offset + top_k]
 
     def save(self):
         self.inverted_index.save(self.index_path)
