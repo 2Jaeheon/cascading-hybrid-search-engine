@@ -8,7 +8,8 @@ class SpladeModel:
         self.tokenizer = SpladeTokenizer(model_name)
         self.model = AutoModelForMaskedLM.from_pretrained(model_name)
         
-        self.device = torch.device("cuda")
+        # CPU에서 실행 (GPU 메모리 충돌 방지)
+        self.device = torch.device("cpu")
         self.model.to(self.device)
         self.model.eval()
 
@@ -21,35 +22,33 @@ class SpladeModel:
             batch_texts = texts[i:i + batch_size]
             
             with torch.no_grad():
-                # autocast로 처리하면 기본 float16으로 처리되고, 정밀한 계산은 float32로 처리됨
-                # 16비트로 해서 메모리 사용량을 줄임
-                with torch.amp.autocast('cuda'):
-                    inputs = self.tokenizer.tokenize(
-                        batch_texts, 
-                        return_tensors="pt", 
-                        padding=True, 
-                        truncation=True, 
-                        max_length=512
-                    ).to(self.device)
+                # CPU에서 실행하므로 autocast 제거
+                inputs = self.tokenizer.tokenize(
+                    batch_texts, 
+                    return_tensors="pt", 
+                    padding=True, 
+                    truncation=True, 
+                    max_length=512
+                ).to(self.device)
+                
+                output = self.model(**inputs)
+                logits = output.logits
+                
+                # ReLU 적용 & log 적용 & 필요없는 0 제거
+                values, _ = torch.max(
+                    torch.log(1 + torch.relu(logits)) * inputs.attention_mask.unsqueeze(-1), 
+                    dim=1
+                )
+                
+                # 0이 아닌 값들만 추출해서 sparse vector로 변환
+                batch_values = values.numpy()
+                for row in batch_values:
+                    non_zero_mask = row > 0
+                    indices = non_zero_mask.nonzero()[0]
+                    vals = row[non_zero_mask]
                     
-                    output = self.model(**inputs)
-                    logits = output.logits
-                    
-                    # ReLU 적용 & log 적용 & 필요없는 0 제거
-                    values, _ = torch.max(
-                        torch.log(1 + torch.relu(logits)) * inputs.attention_mask.unsqueeze(-1), 
-                        dim=1
-                    )
-                    
-                    # 0이 아닌 값들만 추출해서 sparse vector로 변환
-                    batch_values = values.cpu().numpy()
-                    for row in batch_values:
-                        non_zero_mask = row > 0
-                        indices = non_zero_mask.nonzero()[0]
-                        vals = row[non_zero_mask]
-                        
-                        all_indices.append(indices)
-                        all_values.append(vals)
+                    all_indices.append(indices)
+                    all_values.append(vals)
                         
         return {"indices": all_indices, "values": all_values}
 
